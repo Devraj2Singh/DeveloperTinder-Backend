@@ -5,27 +5,42 @@ import userRoutes from "./routes/user.js";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
-dotenv.config(); // MUST be at top
+dotenv.config();
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://YOUR-VERCEL-FRONTEND.vercel.app",
+];
+
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return cb(null, true);
+      }
+      return cb(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
+
 app.use(cookieParser());
 app.use(express.json());
 
-// ROUTES BEFORE SERVER START
 app.use("/api/users", userRoutes);
 
-const PORT = process.env.PORT || 7000; // FIXED (capital PORT)
+app.get("/", (req, res) => {
+  res.json({ status: "Developer Tinder backend live!" });
+});
+
+const PORT = process.env.PORT || 7000;
 
 const startServer = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URL); // FIXED (capital MONGO_URL)
+    await mongoose.connect(process.env.MONGO_URL);
     console.log("Database Connected Successfully!");
 
     app.listen(PORT, () => {
