@@ -9,13 +9,22 @@ import authenticateToken from "../middleware/authHeader.js";
 const router = express.Router();
 
 dotenv.config();
-
+const isProd = process.env.NODE_ENV === "production";
 
 // User Register
 router.post("/register", async (req, res) => {
   try {
-    const { firstname, lastname, email, password, photoURL, about, skills , age, gender} =
-      req.body;
+    const {
+      firstname,
+      lastname,
+      email,
+      password,
+      photoURL,
+      about,
+      skills,
+      age,
+      gender,
+    } = req.body;
 
     // Check missing fields
     if (!firstname || !lastname || !email || !password) {
@@ -47,7 +56,7 @@ router.post("/register", async (req, res) => {
       about: about || "",
       skills: Array.isArray(skills) ? skills : [],
       age: age || "",
-      gender: gender || "" ,
+      gender: gender || "",
     });
 
     const savedUser = await newUser.save();
@@ -62,10 +71,10 @@ router.post("/register", async (req, res) => {
     );
 
     // 4. Set token in cookies
-    res.cookie("token", token, {
+    res.clearCookie("token", {
       httpOnly: true,
-      sameSite: "lax",
-      secure: false, // true only in production
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
     });
 
     return res.status(201).json({
@@ -81,10 +90,9 @@ router.post("/register", async (req, res) => {
         about: savedUser.about,
         skills: savedUser.skills,
         age: savedUser.age,
-        gender: savedUser.gender
+        gender: savedUser.gender,
       },
     });
-
   } catch (error) {
     console.log("Error:", error.message);
     return res
@@ -106,7 +114,12 @@ router.post("/login", async (req, res) => {
     const user = await User.findOne({ email: email });
 
     if (!user) {
-      return res.status(400).json({ message:"No account found with this email. Please create an account." });
+      return res
+        .status(400)
+        .json({
+          message:
+            "No account found with this email. Please create an account.",
+        });
     }
 
     // 2. Check password
@@ -123,10 +136,10 @@ router.post("/login", async (req, res) => {
     );
 
     // 4. Set token in cookies
-    res.cookie("token", token, {
+    res.clearCookie("token", {
       httpOnly: true,
-      sameSite: "lax",
-      secure: false, // true only in production
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
     });
 
     // 5. Send cleaned user data
@@ -202,14 +215,13 @@ router.patch("/update-profile", authenticateToken, async (req, res) => {
   }
 });
 
-
 // USER LOGOUT
 router.post("/logout", (req, res) => {
   try {
     res.clearCookie("token", {
       httpOnly: true,
-      sameSite: "lax",
-      secure: false, // keep false in local, true in production
+      sameSite: isProd ? "none" : "lax",
+      secure: isProd,
     });
 
     return res.status(200).json({
@@ -233,9 +245,8 @@ router.get("/profile", authenticateToken, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
     //console.log(user);
-    
-    res.status(200).json(user);
 
+    res.status(200).json(user);
   } catch (error) {
     console.log("Profile Error:", error);
     res.status(500).json({ message: "Server error" });
@@ -260,7 +271,6 @@ router.get("/feed", authenticateToken, async (req, res) => {
       message: "Feed fetched successfully.",
       users,
     });
-
   } catch (error) {
     console.log("Feed Error:", error);
     res.status(500).json({ message: "Server error fetching feed." });
@@ -269,8 +279,10 @@ router.get("/feed", authenticateToken, async (req, res) => {
 
 router.get("/request/received", authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id)
-      .populate("connectionRequests", "firstname lastname photoURL about skills");
+    const user = await User.findById(req.user.id).populate(
+      "connectionRequests",
+      "firstname lastname photoURL about skills"
+    );
 
     return res.status(200).json({
       success: true,
@@ -287,8 +299,10 @@ router.get("/request/received", authenticateToken, async (req, res) => {
 
 router.get("/connections", authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id)
-      .populate("connections", "firstname lastname photoURL age gender about skills");
+    const user = await User.findById(req.user.id).populate(
+      "connections",
+      "firstname lastname photoURL age gender about skills"
+    );
 
     return res.status(200).json({
       success: true,
@@ -299,134 +313,153 @@ router.get("/connections", authenticateToken, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch connections",
-    }); 
+    });
   }
 });
 
 // Accept Connection Request
-router.patch("/review/request/accepted/:requestUserId", authenticateToken, async (req, res) => {
-  try {
-    const loggedInUserId = req.user.id;
-    const requestUserId = req.params.requestUserId;
+router.patch(
+  "/review/request/accepted/:requestUserId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const loggedInUserId = req.user.id;
+      const requestUserId = req.params.requestUserId;
 
-    const loggedInUser = await User.findById(loggedInUserId);
-    const requestUser = await User.findById(requestUserId);
+      const loggedInUser = await User.findById(loggedInUserId);
+      const requestUser = await User.findById(requestUserId);
 
-    if (!loggedInUser.connectionRequests.includes(requestUserId)) {
-      return res.status(400).json({ success: false, message: "No such connection request found" });
+      if (!loggedInUser.connectionRequests.includes(requestUserId)) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "No such connection request found",
+          });
+      }
+
+      // Remove from connectionRequests
+      loggedInUser.connectionRequests = loggedInUser.connectionRequests.filter(
+        (id) => id.toString() !== requestUserId
+      );
+
+      // Add to connections if not already there
+      if (!loggedInUser.connections.includes(requestUserId)) {
+        loggedInUser.connections.push(requestUserId);
+      }
+
+      // Also add loggedInUser to the requestUser's connections
+      if (!requestUser.connections.includes(loggedInUserId)) {
+        requestUser.connections.push(loggedInUserId);
+      }
+
+      await loggedInUser.save();
+      await requestUser.save();
+
+      return res.json({ success: true, message: "Connection accepted" });
+    } catch (error) {
+      console.log(error);
+      return res.status(500).json({ success: false, message: "Server error" });
     }
-
-    // Remove from connectionRequests
-    loggedInUser.connectionRequests = loggedInUser.connectionRequests.filter(
-      (id) => id.toString() !== requestUserId
-    );
-
-    // Add to connections if not already there
-    if (!loggedInUser.connections.includes(requestUserId)) {
-      loggedInUser.connections.push(requestUserId);
-    }
-
-    // Also add loggedInUser to the requestUser's connections
-    if (!requestUser.connections.includes(loggedInUserId)) {
-      requestUser.connections.push(loggedInUserId);
-    }
-
-    await loggedInUser.save();
-    await requestUser.save();
-
-    return res.json({ success: true, message: "Connection accepted" });
-  } catch (error) {
-    console.log(error);
-    return res.status(500).json({ success: false, message: "Server error" });
   }
-});
+);
 
 // Reject Connection Request
-router.patch("/review/request/rejected/:requestUserId", authenticateToken, async (req, res) => {
-  try {
-    const loggedInUserId = req.user.id;
-    const requestUserId = req.params.requestUserId;
+router.patch(
+  "/review/request/rejected/:requestUserId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const loggedInUserId = req.user.id;
+      const requestUserId = req.params.requestUserId;
 
-    const loggedInUser = await User.findById(loggedInUserId);
+      const loggedInUser = await User.findById(loggedInUserId);
 
-    // Remove from connectionRequests
-    loggedInUser.connectionRequests = loggedInUser.connectionRequests.filter(
-      (id) => id.toString() !== requestUserId
-    );
+      // Remove from connectionRequests
+      loggedInUser.connectionRequests = loggedInUser.connectionRequests.filter(
+        (id) => id.toString() !== requestUserId
+      );
 
-    await loggedInUser.save();
+      await loggedInUser.save();
 
-    return res.json({ success: true, message: "Connection rejected" });
-  } catch (error) {
-    console.log(error);
-    return res.status(500).json({ success: false, message: "Server error" });
+      return res.json({ success: true, message: "Connection rejected" });
+    } catch (error) {
+      console.log(error);
+      return res.status(500).json({ success: false, message: "Server error" });
+    }
   }
-});
+);
 
 //Send Request (Interested)
-router.patch("/request/sent/interested/:targetId", authenticateToken, async (req, res) => {
-  try {
-    const loggedInUserId = req.user.id;   // FIXED
-    const targetId = req.params.targetId;
+router.patch(
+  "/request/sent/interested/:targetId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const loggedInUserId = req.user.id; // FIXED
+      const targetId = req.params.targetId;
 
-    if (loggedInUserId === targetId) {
-      return res.status(400).json({ message: "Cannot send request to yourself." });
+      if (loggedInUserId === targetId) {
+        return res
+          .status(400)
+          .json({ message: "Cannot send request to yourself." });
+      }
+
+      // Add to logged-in user's sentRequests
+      const userUpdate = User.findByIdAndUpdate(
+        loggedInUserId,
+        { $addToSet: { sentRequests: targetId } },
+        { new: true }
+      );
+
+      // Add to target user’s connectionRequests
+      const targetUpdate = User.findByIdAndUpdate(
+        targetId,
+        { $addToSet: { connectionRequests: loggedInUserId } },
+        { new: true }
+      );
+
+      await Promise.all([userUpdate, targetUpdate]);
+
+      res.json({ message: "Interest sent successfully" });
+    } catch (error) {
+      console.log(error);
+      res.status(500).json({ message: "Internal Server Error" });
     }
-
-    // Add to logged-in user's sentRequests
-    const userUpdate = User.findByIdAndUpdate(
-      loggedInUserId,
-      { $addToSet: { sentRequests: targetId } },
-      { new: true }
-    );
-
-    // Add to target user’s connectionRequests
-    const targetUpdate = User.findByIdAndUpdate(
-      targetId,
-      { $addToSet: { connectionRequests: loggedInUserId } },
-      { new: true }
-    );
-
-    await Promise.all([userUpdate, targetUpdate]);
-
-    res.json({ message: "Interest sent successfully" });
-
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Internal Server Error" });
   }
-});
-
+);
 
 //Ignore / Withdraw Request
-router.patch("/request/sent/rejected/:targetId", authenticateToken,async (req, res) => {
-  try {
-    const loggedInUserId = req.user._id;
-    const targetId = req.params.targetId;
+router.patch(
+  "/request/sent/rejected/:targetId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const loggedInUserId = req.user._id;
+      const targetId = req.params.targetId;
 
-    // Remove from logged-in user's sentRequests
-    const userUpdate = User.findByIdAndUpdate(
-      loggedInUserId,
-      { $pull: { sentRequests: targetId } },
-      { new: true }
-    );
+      // Remove from logged-in user's sentRequests
+      const userUpdate = User.findByIdAndUpdate(
+        loggedInUserId,
+        { $pull: { sentRequests: targetId } },
+        { new: true }
+      );
 
-    // Remove from target user's connectionRequests
-    const targetUpdate = User.findByIdAndUpdate(
-      targetId,
-      { $pull: { connectionRequests: loggedInUserId } },
-      { new: true }
-    );
+      // Remove from target user's connectionRequests
+      const targetUpdate = User.findByIdAndUpdate(
+        targetId,
+        { $pull: { connectionRequests: loggedInUserId } },
+        { new: true }
+      );
 
-    await Promise.all([userUpdate, targetUpdate]);
+      await Promise.all([userUpdate, targetUpdate]);
 
-    res.json({ message: "Request ignored / withdrawn successfully" });
-
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Internal Server Error" });
+      res.json({ message: "Request ignored / withdrawn successfully" });
+    } catch (error) {
+      console.log(error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
   }
-});
-
+);
 
 export default router;
