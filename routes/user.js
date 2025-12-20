@@ -11,7 +11,13 @@ const router = express.Router();
 dotenv.config();
 const isProd = process.env.NODE_ENV === "production";
 
-// User Register
+// helper to sign JWT
+const signToken = (payload) =>
+  jwt.sign(payload, process.env.JWT_SECRET || "DEV_SECRET_KEY", {
+    expiresIn: "7d",
+  });
+
+// ======================= REGISTER =======================
 router.post("/register", async (req, res) => {
   try {
     const {
@@ -26,7 +32,6 @@ router.post("/register", async (req, res) => {
       gender,
     } = req.body;
 
-    // Check missing fields
     if (!firstname || !lastname || !email || !password) {
       return res.status(400).json({
         success: false,
@@ -34,7 +39,6 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Check user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(409).json({
@@ -43,10 +47,8 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create new user
     const newUser = new User({
       firstname,
       lastname,
@@ -63,15 +65,10 @@ router.post("/register", async (req, res) => {
 
     console.log("User registered:", savedUser);
 
-    // 3. Generate JWT token
-    const token = jwt.sign(
-      { id: savedUser._id, email: savedUser.email },
-      "DEV_SECRET_KEY",
-      { expiresIn: "7d" }
-    );
+    const token = signToken({ id: savedUser._id, email: savedUser.email });
 
-    // 4. Set token in cookies
-    res.clearCookie("token", {
+    // set token cookie (REGISTER)
+    res.cookie("token", token, {
       httpOnly: true,
       sameSite: isProd ? "none" : "lax",
       secure: isProd,
@@ -101,7 +98,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-//User Login
+// ======================= LOGIN =======================
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -110,39 +107,29 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Please fill all the fields!" });
     }
 
-    // 1. Check if user exists
     const user = await User.findOne({ email: email });
 
     if (!user) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "No account found with this email. Please create an account.",
-        });
+      return res.status(400).json({
+        message:
+          "No account found with this email. Please create an account.",
+      });
     }
 
-    // 2. Check password
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return res.status(400).json({ message: "Invalid Credentials!" });
     }
 
-    // 3. Generate JWT token
-    const token = jwt.sign(
-      { id: user._id, email: user.email },
-      "DEV_SECRET_KEY",
-      { expiresIn: "7d" }
-    );
+    const token = signToken({ id: user._id, email: user.email });
 
-    // 4. Set token in cookies
-    res.clearCookie("token", {
+    // set token cookie (LOGIN)
+    res.cookie("token", token, {
       httpOnly: true,
       sameSite: isProd ? "none" : "lax",
       secure: isProd,
     });
 
-    // 5. Send cleaned user data
     res.status(200).json({
       success: true,
       message: "Login Successful!",
@@ -163,14 +150,12 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// Update User Profile
+// ======================= UPDATE PROFILE =======================
 router.patch("/update-profile", authenticateToken, async (req, res) => {
   try {
     const { firstname, lastname, age, gender, photoURL, about } = req.body;
 
-    // Build dynamic update object
     const updateData = {};
-
     if (firstname) updateData.firstname = firstname;
     if (lastname) updateData.lastname = lastname;
     if (age) updateData.age = age;
@@ -181,7 +166,7 @@ router.patch("/update-profile", authenticateToken, async (req, res) => {
     const updatedUser = await User.findByIdAndUpdate(
       req.user.id,
       { $set: updateData },
-      { new: true } // return updated document
+      { new: true }
     );
 
     if (!updatedUser) {
@@ -215,7 +200,7 @@ router.patch("/update-profile", authenticateToken, async (req, res) => {
   }
 });
 
-// USER LOGOUT
+// ======================= LOGOUT =======================
 router.post("/logout", (req, res) => {
   try {
     res.clearCookie("token", {
@@ -237,6 +222,7 @@ router.post("/logout", (req, res) => {
   }
 });
 
+// ======================= PROFILE =======================
 router.get("/profile", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
@@ -244,7 +230,6 @@ router.get("/profile", authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    //console.log(user);
 
     res.status(200).json(user);
   } catch (error) {
@@ -253,12 +238,11 @@ router.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// GET /feed – show all other users except the current user
+// ======================= FEED =======================
 router.get("/feed", authenticateToken, async (req, res) => {
   try {
     const currentUserId = req.user.id;
 
-    // fetch all users except the logged-in one
     const users = await User.find({ _id: { $ne: currentUserId } })
       .select("-password")
       .lean();
@@ -277,6 +261,7 @@ router.get("/feed", authenticateToken, async (req, res) => {
   }
 });
 
+// ======================= RECEIVED REQUESTS =======================
 router.get("/request/received", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).populate(
@@ -297,6 +282,7 @@ router.get("/request/received", authenticateToken, async (req, res) => {
   }
 });
 
+// ======================= CONNECTIONS =======================
 router.get("/connections", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).populate(
@@ -317,7 +303,7 @@ router.get("/connections", authenticateToken, async (req, res) => {
   }
 });
 
-// Accept Connection Request
+// ======================= ACCEPT REQUEST =======================
 router.patch(
   "/review/request/accepted/:requestUserId",
   authenticateToken,
@@ -330,25 +316,21 @@ router.patch(
       const requestUser = await User.findById(requestUserId);
 
       if (!loggedInUser.connectionRequests.includes(requestUserId)) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "No such connection request found",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "No such connection request found",
+        });
       }
 
-      // Remove from connectionRequests
-      loggedInUser.connectionRequests = loggedInUser.connectionRequests.filter(
-        (id) => id.toString() !== requestUserId
-      );
+      loggedInUser.connectionRequests =
+        loggedInUser.connectionRequests.filter(
+          (id) => id.toString() !== requestUserId
+        );
 
-      // Add to connections if not already there
       if (!loggedInUser.connections.includes(requestUserId)) {
         loggedInUser.connections.push(requestUserId);
       }
 
-      // Also add loggedInUser to the requestUser's connections
       if (!requestUser.connections.includes(loggedInUserId)) {
         requestUser.connections.push(loggedInUserId);
       }
@@ -364,7 +346,7 @@ router.patch(
   }
 );
 
-// Reject Connection Request
+// ======================= REJECT REQUEST =======================
 router.patch(
   "/review/request/rejected/:requestUserId",
   authenticateToken,
@@ -375,10 +357,10 @@ router.patch(
 
       const loggedInUser = await User.findById(loggedInUserId);
 
-      // Remove from connectionRequests
-      loggedInUser.connectionRequests = loggedInUser.connectionRequests.filter(
-        (id) => id.toString() !== requestUserId
-      );
+      loggedInUser.connectionRequests =
+        loggedInUser.connectionRequests.filter(
+          (id) => id.toString() !== requestUserId
+        );
 
       await loggedInUser.save();
 
@@ -390,13 +372,13 @@ router.patch(
   }
 );
 
-//Send Request (Interested)
+// ======================= SEND REQUEST (INTERESTED) =======================
 router.patch(
   "/request/sent/interested/:targetId",
   authenticateToken,
   async (req, res) => {
     try {
-      const loggedInUserId = req.user.id; // FIXED
+      const loggedInUserId = req.user.id;
       const targetId = req.params.targetId;
 
       if (loggedInUserId === targetId) {
@@ -405,14 +387,12 @@ router.patch(
           .json({ message: "Cannot send request to yourself." });
       }
 
-      // Add to logged-in user's sentRequests
       const userUpdate = User.findByIdAndUpdate(
         loggedInUserId,
         { $addToSet: { sentRequests: targetId } },
         { new: true }
       );
 
-      // Add to target user’s connectionRequests
       const targetUpdate = User.findByIdAndUpdate(
         targetId,
         { $addToSet: { connectionRequests: loggedInUserId } },
@@ -429,7 +409,7 @@ router.patch(
   }
 );
 
-//Ignore / Withdraw Request
+// ======================= IGNORE / WITHDRAW REQUEST =======================
 router.patch(
   "/request/sent/rejected/:targetId",
   authenticateToken,
@@ -438,14 +418,12 @@ router.patch(
       const loggedInUserId = req.user._id;
       const targetId = req.params.targetId;
 
-      // Remove from logged-in user's sentRequests
       const userUpdate = User.findByIdAndUpdate(
         loggedInUserId,
         { $pull: { sentRequests: targetId } },
         { new: true }
       );
 
-      // Remove from target user's connectionRequests
       const targetUpdate = User.findByIdAndUpdate(
         targetId,
         { $pull: { connectionRequests: loggedInUserId } },
